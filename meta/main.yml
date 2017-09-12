@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  author: Owen Barton
+  description: Role to deploy an EC2 instance from an initial AMI and prepare for partitioning. Generally called from the main ansible-ec2-800-53 role (https://github.com/CivicActions/ansible-ec2-800-53/).
+  company: CivicActions
+  license: BSD
+  min_ansible_version: 2.2
+  platforms:
+  - name: EL
+    versions:
+    - 6
+    - 7
+  galaxy_tags:
+    - system

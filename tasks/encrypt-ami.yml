@@ -1,0 +1,37 @@
+- name: Check if there is already an unencrypted AMI with growpart disabled
+  ec2_ami_find:
+    owner: self
+    name: "{{ image }}-{{ root }}gb-unencrypted-nogrowpart"
+  register: unencrypted_amis
+  delegate_to: localhost
+- name: Extract the AMI ID
+  set_fact:
+    unencrypted_ami: "{{ unencrypted_amis.results[0].ami_id }}"  
+  delegate_to: localhost
+  when: unencrypted_amis.results[0].ami_id is defined
+- name: Create unencrypted AMI from template instance (if needed)
+  include: create-ami.yml
+  when: unencrypted_ami is not defined
+# TODO: Replace below section with ec2_ami_copy when https://github.com/boto/boto/issues/3594 is resolved.
+- name: Encrypt AMI
+  command: "aws ec2 copy-image --source-region us-east-1 --source-image-id {{ unencrypted_ami }} --name '{{ image }}-{{ root }}gb-encrypted-nogrowpart' --encrypted"
+  register: encrypted_ami_json
+  delegate_to: localhost
+- name: Extract the encrypted AMI data
+  set_fact:
+    encrypted_ami_data: "{{ encrypted_ami_json.stdout|from_json }}"
+  delegate_to: localhost
+- name: Wait for encrypted AMI to become available
+  command: "aws ec2 wait image-available --image-ids {{ encrypted_ami_data.ImageId }}"
+  delegate_to: localhost
+
+- name: Clean up unencrypted AMI
+  ec2_ami:
+    image_id: "{{ unencrypted_ami }}"
+    delete_snapshot: True
+    state: absent
+  delegate_to: localhost
+- name: Extract the encrypted AMI ID for the deploy step
+  set_fact:
+    encrypted_ami: "{{ encrypted_ami_data.ImageId }}"
+  delegate_to: localhost

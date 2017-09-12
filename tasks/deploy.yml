@@ -1,0 +1,56 @@
+- name: Provision actual instance from encrypted AMI with larger root volume.
+  ec2:
+    instance_type: "{{ instance_type }}"
+    image: "{{ encrypted_ami  }}"
+    vpc_subnet_id: "{{ vpc_subnet_id }}"
+    tenancy: "{{ tenancy }}"
+    group_id: "{{ group_id }}"
+    key_name: "{{ key_name }}"
+    private_ip: "{{ private_ip }}"
+    assign_public_ip: yes
+    volumes:
+    - device_name: /dev/sda1
+      volume_type: gp2
+      volume_size: "{{ root + home + var + varlog + varlogaudit + tmp + free }}"
+    instance_tags:
+      Name: "{{ inventory_hostname }}"
+    wait: true
+  register: ec2
+  delegate_to: localhost
+- fail: msg="Expecting exactly one instance per-host - stop or terminate any left-over instances and restart."
+  when: ec2.instances|length != 1
+- name: Record the instance details
+  set_fact:
+    instance: "{{ ec2.instances[0] }}"
+- fail: msg="Expecting public IP for instance."
+  when: instance.public_ip is not defined
+- name: Update host record with IP from actual instance
+  add_host:
+    hostname: "{{ item }}"
+    ansible_host: "{{ hostvars[item]['instance'].public_ip }}"
+    ansible_connection: ssh
+    ansible_become: true
+  with_items: "{{ ansible_play_hosts }}"
+  when: hostvars[item]['instance'] is defined
+- name: Wait for SSH to come up
+  wait_for: host={{ instance.public_ip }} port=22 delay=30 timeout=640 search_regex=OpenSSH
+  delegate_to: localhost
+- name: Update facts
+  setup:
+- name: Install package needed to determine RHEL/CentOS major version in later tasks
+  yum: name=redhat-lsb-core state=present
+- name: Install gdisk package (for sgdisk)
+  yum: name=gdisk state=present
+- name: Extend GPT
+  command: sgdisk /dev/xvda -e
+- name: Create LVM partition
+  shell: sgdisk /dev/xvda --largest-new=$(sgdisk /dev/xvda -p | grep '^Number' -A90 | wc -l) -t2:8e00
+- name: Restart existing instance
+  ec2:
+    state: 'restarted'
+    wait: true
+    instance_id: '{{ instance.id }}'
+  delegate_to: localhost
+- name: Wait for SSH to come up
+  wait_for: host={{ instance.public_ip }} port=22 delay=30 timeout=640 search_regex=OpenSSH
+  delegate_to: localhost

@@ -1,0 +1,77 @@
+- name: Provision an temporary template instance to disable growpart and encrypt.
+  ec2:
+    instance_type: "{{ instance_type }}"
+    image: "{{ image }}"
+    vpc_subnet_id: "{{ vpc_subnet_id }}"
+    tenancy: "{{ tenancy }}"
+    group_id: "{{ group_id }}"
+    key_name: "{{ key_name }}"
+    private_ip: "{{ private_ip }}"
+    assign_public_ip: yes
+    volumes:
+    - device_name: /dev/sda1
+      volume_type: gp2
+      volume_size: "{{ root }}"
+    instance_tags:
+      Name: "{{ image }}-{{ root }}gb-create-ami"
+    wait: true
+  register: ec2
+  delegate_to: localhost
+- fail: msg="Expecting exactly one initial instance per-image - stop or terminate any left-over instances and restart."
+  when: ec2.instances|length != 1
+- name: Record the template instance details
+  set_fact:
+    template_instance: "{{ ec2.instances[0] }}"
+- name: Add new instance to host group so we can delegate to it as the correct user
+  add_host:
+    hostname: "{{ hostvars[item]['ec2'].instances[0].public_ip }}"
+    ansible_connection: ssh
+    ansible_become: true
+  with_items: "{{ ansible_play_hosts }}"
+- name: Wait for SSH to come up
+  wait_for: host={{ template_instance.public_ip }} port=22 delay=60 timeout=640 search_regex=OpenSSH
+  delegate_to: localhost
+- name: Wait a few seconds
+  pause: seconds=5
+  delegate_to: localhost
+- name: Disable cloudinit growpart on instance
+  lineinfile: dest=/etc/cloud/cloud.cfg state=absent regexp="^ - growpart"
+  delegate_to: "{{ template_instance.public_ip }}"
+- name: Disable growroot on instance
+  file: dest=/etc/growroot-disabled state=touch
+  delegate_to: "{{ template_instance.public_ip }}"
+- name: Stop existing instance
+  ec2:
+    state: 'stopped'
+    wait: true
+    instance_id: '{{ template_instance.id }}'
+  delegate_to: localhost
+- name: Create AMI
+  ec2_ami:
+    instance_id: "{{ template_instance.id }}"
+    wait: yes
+    name: "{{ image }}-{{ root }}gb-unencrypted-nogrowpart"
+  delegate_to: localhost
+
+- name: Get the unencrypted AMI ID (in case it was created for another host in the meantime)
+  ec2_ami_find:
+    owner: self
+    name: "{{ image }}-{{ root }}gb-unencrypted-nogrowpart"
+  register: unencrypted_amis
+  until: unencrypted_amis.results[0].ami_id is defined
+  retries: 10
+  delay: 10
+  delegate_to: localhost
+- name: Extract the AMI ID
+  set_fact:
+    unencrypted_ami: "{{ unencrypted_amis.results[0].ami_id }}"  
+  delegate_to: localhost
+
+- name: Terminate template instance
+  ec2:
+    state: absent
+    wait: false
+    instance_id: '{{ template_instance.id }}'
+  delegate_to: localhost
+- name: Clear facts regarding AMI instance
+  meta: clear_facts
