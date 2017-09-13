@@ -15,6 +15,7 @@
     instance_tags:
       Name: "{{ image }}-{{ root }}gb-create-ami"
     wait: true
+
   register: ec2
   delegate_to: localhost
 - fail: msg="Expecting exactly one initial instance per-image - stop or terminate any left-over instances and restart."
@@ -70,7 +71,8 @@
 - name: Terminate template instance
   ec2:
     state: absent
-    wait: false
+    instance_initiated_shutdown_behavior: terminate
+    wait: true
     instance_id: '{{ template_instance.id }}'
   delegate_to: localhost
 - name: Clear facts regarding AMI instance
