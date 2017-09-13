@@ -58,7 +58,7 @@
     owner: self
     name: "{{ image }}-{{ root }}gb-unencrypted-nogrowpart"
   register: unencrypted_amis
-  until: unencrypted_amis.results[0].ami_id is defined
+  until: unencrypted_amis.results|length > 0
   retries: 10
   delay: 10
   delegate_to: localhost

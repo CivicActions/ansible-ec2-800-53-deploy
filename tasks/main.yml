@@ -8,7 +8,7 @@
   set_fact:
     encrypted_ami: "{{ encrypted_amis.results[0].ami_id }}"  
   delegate_to: localhost
-  when: encrypted_amis.results[0].ami_id is defined
+  when: encrypted_amis.results|length > 0
 - name: Create encrypted AMI from unencrypted AMI (if needed)
   include: encrypt-ami.yml
   when: encrypted_ami is not defined
